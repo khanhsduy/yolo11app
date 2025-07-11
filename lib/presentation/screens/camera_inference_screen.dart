@@ -1,12 +1,15 @@
 // Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:ultralytics_yolo/yolo_result.dart';
 import 'package:ultralytics_yolo/yolo_view.dart';
 import '../../models/model_type.dart';
 import '../../models/slider_type.dart';
 import '../../services/model_manager.dart';
-
+import 'package:path_provider/path_provider.dart';
 /// A screen that demonstrates real-time YOLO inference using the device camera.
 ///
 /// This screen provides:
@@ -69,7 +72,8 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
     );
 
     // Load initial model
-    _loadModelForPlatform();
+    //_loadModelForPlatform();
+    _loadModelFromAssets();
 
     // Set initial thresholds after frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -574,7 +578,8 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
                 setState(() {
                   _selectedModel = model;
                 });
-                _loadModelForPlatform();
+                //_loadModelForPlatform();
+                _loadModelFromAssets();
               }
             },
             child: Container(
@@ -613,7 +618,8 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
     try {
       // Use ModelManager to get the model path
       // This will automatically download if not found locally
-      final modelPath = await _modelManager.getModelPath(_selectedModel);
+      //final modelPath = await _modelManager.getModelPath(_selectedModel);
+      final modelPath = 'assets/models/best_float32.tflite';
 
       if (mounted) {
         setState(() {
@@ -670,5 +676,44 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
         );
       }
     }
+  }
+
+  Future<void> _loadModelFromAssets() async {
+    setState(() {
+      _isModelLoading = true;
+      _loadingMessage = 'Loading local model...';
+      _downloadProgress = 0.0;
+    });
+
+    try {
+      final modelPath = await _copyAssetToFile(
+        'assets/models/best_float16.tflite',
+        'best_float16.tflite',
+      );
+      if (mounted) {
+        setState(() {
+          _modelPath = modelPath;
+          _isModelLoading = false;
+          _loadingMessage = '';
+        });
+        debugPrint('Model path = $modelPath');
+      }
+    } catch (e) {
+      debugPrint('Error loading local model: $e');
+      if (mounted) {
+        setState(() {
+          _isModelLoading = false;
+          _loadingMessage = 'Failed to load model';
+        });
+      }
+    }
+  }
+
+  Future<String> _copyAssetToFile(String assetPath, String fileName) async {
+    final byteData = await rootBundle.load(assetPath);
+    final tempDir = await getTemporaryDirectory();
+    final file = File('${tempDir.path}/$fileName');
+    await file.writeAsBytes(byteData.buffer.asUint8List());
+    return file.path;
   }
 }
