@@ -2,14 +2,20 @@
 
 import 'dart:io';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:ultralytics_yolo/yolo_result.dart';
 import 'package:ultralytics_yolo/yolo_view.dart';
 import '../../models/model_type.dart';
 import '../../models/slider_type.dart';
+import '../../services/api.dart';
 import '../../services/model_manager.dart';
 import 'package:path_provider/path_provider.dart';
+
+import 'image_preview.dart';
+
 /// A screen that demonstrates real-time YOLO inference using the device camera.
 ///
 /// This screen provides:
@@ -48,6 +54,9 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
   final bool _useController = true;
 
   late final ModelManager _modelManager;
+  final api = ApiService(baseUrl: 'https://app.nkduy.me');
+  late CameraController _cameraController;
+  bool _isCameraInitialized = false;
 
   @override
   void initState() {
@@ -73,7 +82,9 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
 
     // Load initial model
     //_loadModelForPlatform();
+    _initializeCamera();
     _loadModelFromAssets();
+    testApi();
 
     // Set initial thresholds after frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -91,6 +102,15 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
         );
       }
     });
+  }
+
+
+  Future<void> _initializeCamera() async {
+    final cameras = await availableCameras();
+    final camera = cameras.first;
+    _cameraController = CameraController(camera, ResolutionPreset.high);
+    await _cameraController.initialize();
+    setState(() => _isCameraInitialized = true);
   }
 
   /// Called when new detection results are available
@@ -294,6 +314,44 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
             ),
 
           // Control buttons
+          // Capture photo button (center bottom)
+          Positioned(
+            bottom: isLandscape ? 16 : 32,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.mediumImpact();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('📸 Đã chụp ảnh (giả lập)!')),
+                  );
+                  // TODO: Thay bằng logic chụp ảnh thực sự nếu cần
+                  _captureAndUpload();
+                },
+                child: Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withOpacity(0.9),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 8,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.camera_alt_rounded,
+                    color: Colors.black,
+                    size: 32,
+                  ),
+                ),
+              ),
+            ),
+          ),
           Positioned(
             bottom: isLandscape ? 16 : 32,
             right: isLandscape ? 8 : 16,
@@ -603,78 +661,13 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
     );
   }
 
-  Future<void> _loadModelForPlatform() async {
-    setState(() {
-      _isModelLoading = true;
-      _loadingMessage = 'Loading ${_selectedModel.modelName} model...';
-      _downloadProgress = 0.0;
-      // Reset metrics when switching models
-      _detectionCount = 0;
-      _currentFps = 0.0;
-      _frameCount = 0;
-      _lastFpsUpdate = DateTime.now();
-    });
-
+  void testApi() async {
     try {
-      // Use ModelManager to get the model path
-      // This will automatically download if not found locally
-      //final modelPath = await _modelManager.getModelPath(_selectedModel);
-      final modelPath = 'assets/models/best_float32.tflite';
-
-      if (mounted) {
-        setState(() {
-          _modelPath = modelPath;
-          _isModelLoading = false;
-          _loadingMessage = '';
-          _downloadProgress = 0.0;
-        });
-
-        if (modelPath != null) {
-          debugPrint('CameraInferenceScreen: Model path set to: $modelPath');
-        } else {
-          // Model loading failed
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Model Not Available'),
-              content: Text(
-                'Failed to load ${_selectedModel.modelName} model. Please check your internet connection and try again.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      }
+      // Gọi GET
+      final data = await api.get('/hello/Duy');
+      print('GET result: $data');
     } catch (e) {
-      debugPrint('Error loading model: $e');
-      if (mounted) {
-        setState(() {
-          _isModelLoading = false;
-          _loadingMessage = 'Failed to load model';
-          _downloadProgress = 0.0;
-        });
-        // Show error dialog
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Model Loading Error'),
-            content: Text(
-              'Failed to load ${_selectedModel.modelName} model: ${e.toString()}',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
+      print('API Error: $e');
     }
   }
 
@@ -706,6 +699,28 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
           _loadingMessage = 'Failed to load model';
         });
       }
+    }
+  }
+
+  Future<void> _captureAndUpload() async {
+    try {
+      if (!_cameraController.value.isInitialized) return;
+      final file = await _cameraController.takePicture();
+      // Chuyển sang màn hình preview kèm nút gửi
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ImagePreviewScreen(imagePath: file.path),
+        ),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('📤 Đã gửi ảnh gốc lên server!')),
+      );
+    } catch (e) {
+      debugPrint('Capture error: \$e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Lỗi khi chụp ảnh: \$e')),
+      );
     }
   }
 

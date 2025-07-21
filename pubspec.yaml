@@ -40,6 +40,7 @@ dependencies:
   path_provider: ^2.0.0 # Adjust version as needed
   archive: ^3.0.0 # Adjust version as needed, for unzipping
   http: ^1.0.0 # For downloading models
+  camera: ^0.11.2
 
 dev_dependencies:
   flutter_test:
@@ -71,7 +72,3 @@ flutter:
     - assets/models/best.pt
     - assets/logo.png
     - assets/applogo.png
-flutter_launcher_icons:
-  android: true
-  ios: true
-  image_path: "assets/applogo.png"
