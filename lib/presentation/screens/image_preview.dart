@@ -1,40 +1,107 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
-import '../../services/api.dart';
-
-class ImagePreviewScreen extends StatelessWidget {
+class ImagePreviewScreen extends StatefulWidget {
   final String imagePath;
-  const ImagePreviewScreen({required this.imagePath, super.key});
+  final Rect boundingBox;
+
+  const ImagePreviewScreen({
+    required this.imagePath,
+    required this.boundingBox,
+    super.key,
+  });
+
+  @override
+  State<ImagePreviewScreen> createState() => _ImagePreviewScreenState();
+}
+
+class _ImagePreviewScreenState extends State<ImagePreviewScreen> {
+  Uint8List? _croppedImageBytes;
+  bool _isUploading = false;
+
+  Future<void> _uploadImage() async {
+    try {
+      setState(() => _isUploading = true);
+
+      final uri = Uri.parse('https://app.nkduy.me/upload-crop-image/');
+      final request = http.MultipartRequest('POST', uri)
+        ..files.add(
+          await http.MultipartFile.fromPath(
+            'file',
+            widget.imagePath,
+            contentType: MediaType('image', 'jpeg'),
+          ),
+        )
+        ..fields['x'] = widget.boundingBox.left.toInt().toString()
+        ..fields['y'] = widget.boundingBox.top.toInt().toString()
+        ..fields['width'] = widget.boundingBox.width.toInt().toString()
+        ..fields['height'] = widget.boundingBox.height.toInt().toString();
+
+      final response = await request.send();
+
+      if (response.statusCode == 200) {
+        final bytes = await response.stream.toBytes();
+        setState(() {
+          _croppedImageBytes = bytes;
+          _isUploading = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Gửi ảnh và nhận ảnh cắt thành công!'),
+          ),
+        );
+      } else {
+        throw Exception('Lỗi ${response.statusCode}');
+      }
+    } catch (e) {
+      setState(() => _isUploading = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('❌ Upload lỗi: $e')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final api = ApiService(baseUrl: 'https://app.nkduy.me');
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Ảnh chụp')),
+      appBar: AppBar(title: const Text('Ảnh chụp & kết quả')),
       body: Column(
         children: [
           Expanded(
-            child: Image.file(File(imagePath), fit: BoxFit.contain),
+            child: Column(
+              children: [
+                Expanded(
+                  child: Image.file(
+                    File(widget.imagePath),
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                const Divider(height: 16, color: Colors.grey),
+                if (_croppedImageBytes != null)
+                  Expanded(
+                    child: Image.memory(
+                      _croppedImageBytes!,
+                      fit: BoxFit.contain,
+                    ),
+                  )
+                else if (_isUploading)
+                  const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(),
+                  ),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: ElevatedButton.icon(
-              icon: const Icon(Icons.upload),
-              label: const Text('Gửi lên server'),
-              onPressed: () async {
-                try {
-                  //await api.uploadImage(File(imagePath));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('📤 Đã gửi ảnh lên server!')),
-                  );
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('❌ Gửi ảnh thất bại: \$e')),
-                  );
-                }
-              },
+              onPressed: _isUploading ? null : _uploadImage,
+              icon: const Icon(Icons.cloud_upload),
+              label: const Text('GỬI & HIỂN THỊ ẢNH CẮT'),
             ),
           ),
         ],

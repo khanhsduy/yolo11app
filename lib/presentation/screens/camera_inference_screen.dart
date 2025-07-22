@@ -57,6 +57,7 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
   final api = ApiService(baseUrl: 'https://app.nkduy.me');
   late CameraController _cameraController;
   bool _isCameraInitialized = false;
+  YOLOResult? _latestDetection;
 
   @override
   void initState() {
@@ -82,8 +83,9 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
 
     // Load initial model
     //_loadModelForPlatform();
-    _initializeCamera();
     _loadModelFromAssets();
+    //_initializeCamera();
+
     testApi();
 
     // Set initial thresholds after frame
@@ -103,7 +105,6 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
       }
     });
   }
-
 
   Future<void> _initializeCamera() async {
     final cameras = await availableCameras();
@@ -147,6 +148,9 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
         'Detection $i: ${r.className} (${(r.confidence * 100).toStringAsFixed(1)}%) at ${r.boundingBox}',
       );
     }
+    if (results.isNotEmpty) {
+      _latestDetection = results.first; // Lưu kết quả đầu tiên
+    }
   }
 
   @override
@@ -158,7 +162,7 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
       body: Stack(
         children: [
           // YOLO View: must be at back
-          if (_modelPath != null && !_isModelLoading)
+          if (_modelPath != null && !_isModelLoading && !_isCameraInitialized)
             YOLOView(
               key: _useController
                   ? const ValueKey('yolo_view_static')
@@ -704,22 +708,46 @@ class _CameraInferenceScreenState extends State<CameraInferenceScreen> {
 
   Future<void> _captureAndUpload() async {
     try {
-      if (!_cameraController.value.isInitialized) return;
-      final file = await _cameraController.takePicture();
-      // Chuyển sang màn hình preview kèm nút gửi
+      if (_latestDetection == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('❌ Không tìm thấy object để crop!')),
+        );
+        return;
+      }
+
+      // 📸 Capture ảnh hiện tại từ YOLOView
+      final Uint8List? imageData = await _yoloController.captureFrame();
+      if (imageData == null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('❌ Không lấy được ảnh!')));
+        return;
+      }
+
+      // Lưu Uint8List thành file tạm
+      final tempDir = await getTemporaryDirectory();
+      final tempPath =
+          '${tempDir.path}/capture_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final tempFile = await File(tempPath).writeAsBytes(imageData);
+
+      final box = _latestDetection!.boundingBox;
+
+      // Mở màn hình preview, truyền đường dẫn file tạm và bounding box
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => ImagePreviewScreen(imagePath: file.path),
+          builder: (_) =>
+              ImagePreviewScreen(imagePath: tempFile.path, boundingBox: box),
         ),
       );
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('📤 Đã gửi ảnh gốc lên server!')),
+        const SnackBar(content: Text('✅ Đã lấy ảnh từ YOLOView!')),
       );
     } catch (e) {
-      debugPrint('Capture error: \$e');
+      debugPrint('❌ Capture error from YOLOView: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('❌ Lỗi khi chụp ảnh: \$e')),
+        SnackBar(content: Text('❌ Lỗi khi lấy ảnh từ YOLOView: $e')),
       );
     }
   }
